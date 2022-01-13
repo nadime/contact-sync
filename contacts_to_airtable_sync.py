@@ -145,7 +145,7 @@ def edit(ctx, edit_contacts, left_right, update_delay=0):
 
 def get_ctx(ctxname):
     return {
-        "google": functools.partial(GoogleConnection,token_file_or_path=GOOGLE_TOKEN_FILE),
+        "google": functools.partial(GoogleConnection,token_file_or_path=GOOGLE_TOKEN),
         "airtable": functools.partial(AirtableConnection, BASE_NAME, TABLE_NAME, AIRTABLE_API_KEY),
     }[ctxname.lower()]
 
@@ -171,8 +171,6 @@ def main(fn,ln):
     c2str = "Google"
     c1ctx = get_ctx(c1str)()
     c2ctx = get_ctx(c2str)()
-    atb = AirtableConnection(BASE_NAME, TABLE_NAME, AIRTABLE_API_KEY)
-    gcx = GoogleConnection(token_file_or_path=GOOGLE_TOKEN)
     if ln is None:
         print("No provided name, operating on ALL contacts")
         c1search = Search(c1ctx.list())

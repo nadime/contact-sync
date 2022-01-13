@@ -7,11 +7,6 @@ import sys
 import sendgrid
 import time
 
-import site
-USERGEN_DIR = "/usergen/lib/python"
-USERGEN_DIR = "/Users/scottasher/Documents/lib/python"
-site.addsitedir(USERGEN_DIR)
-
 from contactssync.vars import *
 from contactssync import (
     AirtableContact,
@@ -27,16 +22,13 @@ from contactssync import (
 
 from secrets import *
 
-SENDGRID_API_KEY = os.environ["SENDGRID_API_KEY"]
-SENDGRID_EMAIL_ADDRESS = os.environ["SENDGRID_EMAIL_ADDRESS"] 
-
 def send_email(to, subject, body):
     sg = sendgrid.SendGridAPIClient(
         SENDGRID_API_KEY
     )
 
-    to_email = sendgrid.To(EMAIL_ADDRESS, "Scott Asher")
-    from_email = sendgrid.Email(EMAIL_ADDRESS, "Scott Asher")
+    to_email = sendgrid.To(EMAIL_ADDRESS, EMAIL_NAME)
+    from_email = sendgrid.Email(EMAIL_ADDRESS, EMAIL_NAME)
     content = sendgrid.Content(
         "text/html", body
     )
@@ -164,11 +156,13 @@ def create_changes_body(added, edited):
         body += c.to_series(ignore_null=True).to_frame().style.to_html() + "<p>"
 
     for tup,where in edited:
-        body += f"[Edited in {where}]<br>"
         edited_c = tup[0]
         c2 = tup[1]
-        body += Contact.compare_visual(edited_c,c2).to_html() + "<p>"
-        import pdb; pdb.set_trace()
+        visual_styler = Contact.compare_visual(edited_c,c2)
+        if visual_styler is None:
+            continue
+        body += f"[Edited in {where}]<br>"
+        body += visual_styler.to_html() + "<p>"
 
     return body
 
@@ -178,7 +172,7 @@ def main(fn,ln):
     c1ctx = get_ctx(c1str)()
     c2ctx = get_ctx(c2str)()
     atb = AirtableConnection(BASE_NAME, TABLE_NAME, AIRTABLE_API_KEY)
-    gcx = GoogleConnection(token_file_or_path=GOOGLE_TOKEN_FILE)
+    gcx = GoogleConnection(token_file_or_path=GOOGLE_TOKEN)
     if ln is None:
         print("No provided name, operating on ALL contacts")
         c1search = Search(c1ctx.list())

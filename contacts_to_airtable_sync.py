@@ -137,7 +137,7 @@ def edit(ctx, edit_contacts, left_right, update_delay=0):
                 print(f"Total skipped: {len(skipped)}")
                 print(f"Total edited so far: {len(edited)}")
                 raise Exception(
-                    "Found several errors while editing contacts in ContactsPlus:\n","\n".join(
+                    "Found several errors while editing contacts:\n","\n".join(
                         [str(e) for e in errors]
                     )
                 )

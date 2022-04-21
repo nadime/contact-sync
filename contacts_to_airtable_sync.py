@@ -1,11 +1,16 @@
 #!python3
 
+from collections import OrderedDict
 import datetime
 import functools
 import os
 import sys
 import sendgrid
 import time
+
+import socket
+if "asher" in socket.gethostname().lower():
+    sys.path.insert(0, "../contact-sync-lib")
 
 from contactssync.vars import *
 from contactssync import (
@@ -35,6 +40,16 @@ def send_email(to, subject, body):
     mail = sendgrid.Mail(from_email, to_email, subject, content)
     response = sg.client.mail.send.post(request_body=mail.get())
 
+def make_name_id(x):
+    ln = getattr(x, "ln", "")
+    mn = getattr(x, "mn", "")
+    fn = getattr(x, "fn", "")
+    return f"{ln},{fn},{mn}"
+
+def name_sorter(x):
+    return make_name_id(x)
+
+
 def match_contacts(c1search, c2search):
     matches = []
     unmatch_c1 = []
@@ -43,13 +58,8 @@ def match_contacts(c1search, c2search):
     dups_c2 = []
     c2found = {}
 
-    def _val(x):
-        val = getattr(x, "ln", "")
-        if val is None:
-            return ""
-        return val
 
-    for c in sorted(c1search.contacts, key=_val):
+    for c in sorted(c1search.contacts, key=name_sorter):
         d = {'c1': c}
         m = c2search.find(c)
         if len(m) > 0:
@@ -60,7 +70,7 @@ def match_contacts(c1search, c2search):
         else:
             unmatch_c1.append(d)
 
-    for c in c2search.contacts:
+    for c in sorted(c2search.contacts, key=name_sorter):
         d = {'c2': c}
         if c._id in c2found:
             continue
@@ -74,6 +84,37 @@ def match_contacts(c1search, c2search):
 
     return matches, unmatch_c2, unmatch_c1, dups_c2, dups_c1
 
+def find_dups(search):
+    dups = OrderedDict()
+    for c in sorted(search.contacts, key=name_sorter):
+        nid = make_name_id(c)
+        if nid not in dups:
+            dups[nid] = []
+        dups[nid].append(c)
+    delkeys = []
+    for k in dups.keys():
+        if len(dups[k]) <= 1:
+            delkeys.append(k)
+    for k in delkeys:
+        del dups[k]
+    return dups
+
+def delete(ctx, del_contacts):
+    errors = []
+    deleted = []
+    for cs in del_contacts.values():
+        to_delete = sorted(cs, key=lambda x: x.created)
+        num = 0
+        for c in to_delete[1:]:
+            try:
+                result = ctx.delete(c)
+                print(f"Deleted {c.fn} {c.ln}")
+                if result is not None:
+                    deleted.append(c)
+            except Exception as e:
+                errors.append(str(e))
+                raise
+    return deleted, errors
 
 def add(ctx, new_contacts):
     added = []
@@ -123,13 +164,13 @@ def edit(ctx, edit_contacts, left_right, update_delay=0):
             result_response = {}
             for attrname in results.keys():
                 result_response[attrname] = compare_values[attrname]
-            #print(f"{edited+1}: {c3.fn} {c3.ln} {compared} {result_response}")
+            #print(f"{len(edited)+1}: {c3.fn} {c3.ln} {compared} {result_response}")
             c3._fs = other_contact._fs
             edited.append((c3,compare_contact))
             if update_delay > 0:
                 time.sleep(update_delay)
         except Exception as e:
-            #raise e
+            raise e
             errors.append(e)
             if len(errors) > 5000:
             # if len(errors) > 2:
@@ -149,8 +190,12 @@ def get_ctx(ctxname):
         "airtable": functools.partial(AirtableConnection, BASE_NAME, TABLE_NAME, AIRTABLE_API_KEY),
     }[ctxname.lower()]
 
-def create_changes_body(added, edited):
+def create_changes_body(added, edited, deleted):
     body = ""
+    for c,where in deleted:
+        body += f"[Deleted from {where}]<br>"
+        body += c.to_series(ignore_null=True).to_frame().style.to_html() + "<p>"
+
     for c,where in added:
         body += f"[Added to {where}]<br>"
         body += c.to_series(ignore_null=True).to_frame().style.to_html() + "<p>"
@@ -183,10 +228,22 @@ def main(fn,ln):
     matches, just_c1, just_c2, dup_c1, dup_c2 = match_contacts(
         c1search, c2search)
 
+    dups_c1 = find_dups(c1search)
+    print(f"DUPS: C1 {len(dups_c1)}")
+    dups_c2 = find_dups(c2search)
+    print(f"DUPS: C2 {len(dups_c2)}")
+    print(f"Deleting from {c1str}")
+    deleted_c1, errors = delete(c1ctx, dups_c1)
+    if len(errors):
+        print(f"DELETE C1-{c1str.upper()} ERRORS {len(errors)}")
+        print(errors)
+    print(f"Deleting from {c2str}")
+    deleted_c2, errors = delete(c2ctx, dups_c2)
+    if len(errors):
+        print(f"DELETE C2-{c2str.upper()} ERRORS {len(errors)}")
+        print(errors)
+
     print(f"Adding to {c1str}")
-#    if len(just_c1) or len(just_c2):
-#        raise Exception()
-#    sys.exit(0)
     added_c1, errors = add(c1ctx,[d["c2"] for d in just_c1])
     if len(errors):
         print(f"ADD C1-{c1str.upper()} ERRORS ({len(errors)}):")
@@ -229,28 +286,54 @@ def main(fn,ln):
 
     dt = datetime.datetime.now()
 
-    changes = len(added_c1) + len(added_c2) + len(edited_c1) + len(edited_c2)
+    changes = len(added_c1) + len(added_c2) + len(edited_c1) + len(edited_c2) + len(deleted_c1) + len(deleted_c2)
     subject = f"{c1str} <=> {c2str} sync changes={changes} ({dt})"
-    if changes > 25:
-        stats = f"Too many changes to break down ({changes})"
+    if changes > 50:
+        stats = f"Too many changes to break down with graphics ({changes})<p>"
+        stats += "\n"
+        added = [ c for c in added_c1 ]
+        added.extend([c for c in added_c2 ])
+        stats += f"<p>added to {c1str}:<br>"
+        for ind,add_c in enumerate(added_c1):
+            stats += f"{ind+1}: {add_c.fn} {add_c.ln}<br>"
+        stats += f"<p>added to {c2str}:<br>"
+        for ind,add_c in enumerate(added_c2):
+            stats += f"{ind+1}: {add_c.fn} {add_c.ln}<br>"
+        stats += f"<p>edited in {c1str}:<br>"
+        for edit_c, old_c in edited_c1:
+            compared, results, compare_values = edit_c.compare(old_c)
+            result_response = {}
+            for attrname in results.keys():
+                result_response[attrname] = compare_values[attrname]
+            stats += f"{old_c.fn} {old_c.ln} {compared} {result_response}<p>"
+        stats += f"<p>edited in {c2str}:<br>"
+        for edit_c, old_c in edited_c2:
+            compared, results, compare_values = edit_c.compare(old_c)
+            result_response = {}
+            for attrname in results.keys():
+                result_response[attrname] = compare_values[attrname]
+            stats += f"{old_c.fn} {old_c.ln} {compared} {result_response}<p>"
+        body = stats.replace("\n","<br>") + "<br>=====<p>"
         send_email(
             EMAIL_ADDRESS,
             subject,
-            stats
+            body,
         )
     elif changes > 0:
         added = [(c, f"{c1str}") for c in added_c1 ]
         added.extend([(c, f"{c2str}") for c in added_c2 ])
         edited = [(tup, f"{c1str}") for tup in edited_c1 ]
         edited.extend([(tup, f"{c2str}") for tup in edited_c2 ])
-        body = create_changes_body(added, edited)
+        deleted = [(c, f"{c1str}") for c in deleted_c1 ]
+        deleted.extend([(c, f"{c2str}") for c in deleted_c2])
+        body = create_changes_body(added, edited, deleted)
         body = stats.replace("\n","<br>") + "<br>=====<p>" + body
         send_email(
             EMAIL_ADDRESS,
             subject,
             body
         )
-    print(stats)
+    #print(stats)
 
 if __name__ == "__main__":
     fn = None; ln = None

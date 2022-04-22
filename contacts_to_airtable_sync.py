@@ -103,7 +103,7 @@ def delete(ctx, del_contacts):
     errors = []
     deleted = []
     for cs in del_contacts.values():
-        to_delete = sorted(cs, key=lambda x: x.created)
+        to_delete = sorted(cs, key=lambda x: x.createddt)
         num = 0
         for c in to_delete[1:]:
             try:
@@ -164,16 +164,14 @@ def edit(ctx, edit_contacts, left_right, update_delay=0):
             result_response = {}
             for attrname in results.keys():
                 result_response[attrname] = compare_values[attrname]
-            #print(f"{len(edited)+1}: {c3.fn} {c3.ln} {compared} {result_response}")
+            print(f"{len(edited)+1}: {c3.fn} {c3.ln} {compared} {result_response}")
             c3._fs = other_contact._fs
             edited.append((c3,compare_contact))
             if update_delay > 0:
                 time.sleep(update_delay)
         except Exception as e:
-            raise e
             errors.append(e)
             if len(errors) > 5000:
-            # if len(errors) > 2:
                 print(f"Total listed for possible inclusion: {len(edit_contacts)}")
                 print(f"Total skipped: {len(skipped)}")
                 print(f"Total edited so far: {len(edited)}")
@@ -314,6 +312,7 @@ def main(fn,ln):
                 result_response[attrname] = compare_values[attrname]
             stats += f"{old_c.fn} {old_c.ln} {compared} {result_response}<p>"
         body = stats.replace("\n","<br>") + "<br>=====<p>"
+        body = f"contactssync version: {contactssync.__version__}"
         send_email(
             EMAIL_ADDRESS,
             subject,
@@ -328,6 +327,7 @@ def main(fn,ln):
         deleted.extend([(c, f"{c2str}") for c in deleted_c2])
         body = create_changes_body(added, edited, deleted)
         body = stats.replace("\n","<br>") + "<br>=====<p>" + body
+        body = f"contactssync version: {contactssync.__version__}"
         send_email(
             EMAIL_ADDRESS,
             subject,

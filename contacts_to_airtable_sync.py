@@ -312,7 +312,7 @@ def main(fn,ln):
                 result_response[attrname] = compare_values[attrname]
             stats += f"{old_c.fn} {old_c.ln} {compared} {result_response}<p>"
         body = stats.replace("\n","<br>") + "<br>=====<p>"
-        body = f"contactssync version: {contactssync.__version__}"
+        body = f"contactssync version: {contactssync.__version__}" + "\n\n" + body
         send_email(
             EMAIL_ADDRESS,
             subject,
@@ -327,7 +327,7 @@ def main(fn,ln):
         deleted.extend([(c, f"{c2str}") for c in deleted_c2])
         body = create_changes_body(added, edited, deleted)
         body = stats.replace("\n","<br>") + "<br>=====<p>" + body
-        body = f"contactssync version: {contactssync.__version__}"
+        body = f"contactssync version: {contactssync.__version__}" + "\n\n" + body
         send_email(
             EMAIL_ADDRESS,
             subject,

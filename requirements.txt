@@ -1,2 +1,2 @@
-contactssync==0.1.26
+contactssync==0.1.27
 sendgrid==6.9.0
